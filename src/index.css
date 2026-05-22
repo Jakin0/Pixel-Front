@@ -1,0 +1,41 @@
+@import url('https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Special+Elite&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Special Elite', ui-sans-serif, system-ui, sans-serif;
+  --font-stencil: 'Black Ops One', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Tactical HUD overlays */
+.canvas-texture {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.15'/%3E%3C/svg%3E");
+}
+
+.map-gradient {
+  background: radial-gradient(circle at center, transparent 30%, rgba(0,0,0,0.6) 100%);
+}
+
+.hud-panel {
+  box-shadow: inset 0 0 20px rgba(0,0,0,0.8), 0 10px 25px rgba(0,0,0,0.5);
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+}
+
+.bracket-corners {
+  position: relative;
+}
+.bracket-corners::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; width: 10px; height: 10px;
+  border-top: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  pointer-events: none;
+}
+.bracket-corners::after {
+  content: '';
+  position: absolute;
+  bottom: 0; right: 0; width: 10px; height: 10px;
+  border-bottom: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+  pointer-events: none;
+}
