@@ -52,7 +52,7 @@ interface GameState {
 
 export const useGameStore = create<GameState>((set) => ({
   socket: null,
-  setSocket: (socket) => set({ socket }),
+  setSocket: (socket) => set((state) => state.socket === socket ? {} : { socket }),
   blocks: {},
   units: {},
   teams: {},
@@ -67,7 +67,7 @@ export const useGameStore = create<GameState>((set) => ({
   territory: new Uint8Array(MAP_WIDTH * MAP_HEIGHT),
   territoryVersion: 0,
   terrainVersion: 0,
-  setTerritory: (t) => set({ territory: t, territoryVersion: Date.now() }),
+  setTerritory: (t) => set((state) => ({ territory: t, territoryVersion: state.territoryVersion + 1 })),
   applyTerritoryDiff: (diffs) => set((state) => {
       const newT = new Uint8Array(state.territory);
       diffs.forEach(([idx, val]) => {
@@ -187,7 +187,7 @@ export const useGameStore = create<GameState>((set) => ({
 
   addExplosion: (x, y, radius) => {
      const id = Math.random().toString(36);
-     set((state) => ({ explosions: [...state.explosions, { id, x, y, radius }] }));
+     set((state) => ({ explosions: [...state.explosions, { id, x, y, radius }].slice(-24) }));
      setTimeout(() => {
         set((state) => ({ explosions: state.explosions.filter(e => e.id !== id) }));
      }, 800);
@@ -197,7 +197,7 @@ export const useGameStore = create<GameState>((set) => ({
 
   addCombatHit: (hit) => {
      const id = Math.random().toString(36);
-     set((state) => ({ combatHits: [...state.combatHits, { id, ...hit }] }));
+     set((state) => ({ combatHits: [...state.combatHits, { id, ...hit }].slice(-80) }));
      setTimeout(() => {
         set((state) => ({ combatHits: state.combatHits.filter(e => e.id !== id) }));
      }, 200); // Fast fading laser
@@ -211,8 +211,15 @@ export const useGameStore = create<GameState>((set) => ({
   
   selectedUnitId: null,
   selectedUnitIds: [],
-  setSelectedUnit: (id) => set({ selectedUnitId: id, selectedUnitIds: id ? [id] : [] }),
-  setSelectedUnits: (ids) => set({ selectedUnitIds: ids, selectedUnitId: ids.length > 0 ? ids[0] : null }),
+  setSelectedUnit: (id) => set({ selectedUnitId: id, selectedUnitIds: id ? [id] : [], selectedTypeToBuild: null }),
+  setSelectedUnits: (ids) => set((state) => {
+    const selectedUnitIds = Array.from(new Set(ids));
+    return {
+      selectedUnitIds,
+      selectedUnitId: selectedUnitIds.length > 0 ? selectedUnitIds[0] : null,
+      selectedTypeToBuild: selectedUnitIds.length > 0 ? null : state.selectedTypeToBuild
+    };
+  }),
   selectedTypeToBuild: null,
-  setSelectedTypeToBuild: (t) => set({ selectedTypeToBuild: t }),
+  setSelectedTypeToBuild: (t) => set({ selectedTypeToBuild: t, selectedUnitId: null, selectedUnitIds: [] }),
 }));

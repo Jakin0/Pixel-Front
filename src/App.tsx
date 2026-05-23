@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import { useGameStore } from './store';
 import MapCanvas from './MapCanvas';
@@ -33,10 +33,17 @@ const UNIT_ROLES: Partial<Record<UnitClass, string>> = {
   recon: 'Scout'
 };
 
+const FACTION_LABELS: Record<string, string> = {
+  BLUE: 'USA',
+  RED: 'USSR',
+  NEUTRAL: 'NEUTRAL'
+};
+
 export default function App() {
   const [connected, setConnected] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState('Awaiting orders');
+  const statusTimeoutRef = useRef<number | null>(null);
   
   const setSocket = useGameStore(state => state.setSocket);
   const initGame = useGameStore(state => state.initGame);
@@ -63,6 +70,7 @@ export default function App() {
   const enableAiRed = useGameStore(state => state.enableAiRed);
   const enableAiBlue = useGameStore(state => state.enableAiBlue);
   const myTeam = playerDetails ? playerDetails.team : null;
+  const myFaction = myTeam ? (FACTION_LABELS[myTeam] || myTeam) : null;
 
   const [cooldownRemainingMs, setCooldownRemainingMs] = useState(0);
   const effectiveCooldownMs = Math.max(cooldownRemainingMs, spawnCooldownEnd - Date.now());
@@ -70,27 +78,40 @@ export default function App() {
   const showCooldown = effectiveCooldownMs >= 450;
   const cdRemaining = Math.ceil(effectiveCooldownMs / 1000);
 
-  const dismissStatusLater = (message: string) => {
+  const dismissStatusLater = useCallback((message: string) => {
+    if (statusTimeoutRef.current) window.clearTimeout(statusTimeoutRef.current);
     setStatusMessage(message);
-    window.setTimeout(() => {
+    statusTimeoutRef.current = window.setTimeout(() => {
       setStatusMessage(current => current === message ? 'Awaiting orders' : current);
+      statusTimeoutRef.current = null;
     }, 3500);
-  };
+  }, []);
 
   useEffect(() => {
     let interval = setInterval(() => {
        const now = Date.now();
        setCooldownRemainingMs(Math.max(0, spawnCooldownEnd - now));
-    }, 50);
+    }, 200);
     return () => clearInterval(interval);
   }, [spawnCooldownEnd]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
       if (event.key === 'Escape') {
         setSelectedTypeToBuild(null);
         setMobileMenuOpen(false);
         useGameStore.getState().setSelectedUnit(null);
+      }
+      const numericIndex = Number(event.key) - 1;
+      if (myTeam && numericIndex >= 0 && numericIndex < BUILDABLE_UNITS.length) {
+        const type = BUILDABLE_UNITS[numericIndex];
+        const teamState = useGameStore.getState().teams[myTeam];
+        if ((teamState?.supplies || 0) >= UNIT_STATS[type].cost) {
+          setSelectedTypeToBuild(type);
+          setMobileMenuOpen(false);
+          dismissStatusLater(`${UNIT_STATS[type].name} ready. Click map to deploy.`);
+        }
       }
       if (event.key.toLowerCase() === 'h' && myTeam) {
         const hq = Object.values(useGameStore.getState().units).find(u => (u.type === 'hq' || u.type === 'factory' || u.type === 'fob') && u.team === myTeam);
@@ -99,7 +120,13 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [myTeam, setSelectedTypeToBuild]);
+  }, [dismissStatusLater, myTeam, setSelectedTypeToBuild]);
+
+  useEffect(() => {
+    return () => {
+      if (statusTimeoutRef.current) window.clearTimeout(statusTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const s = io(undefined, { path: '/socket.io' });
@@ -194,36 +221,48 @@ export default function App() {
 
   const selectedUnit = selectedUnitId ? units[selectedUnitId] : null;
   const myTeamData = myTeam && teams[myTeam] ? teams[myTeam] : { supplies: 0, score: 0 };
-  const selectedUnits = selectedUnitIds.map(id => units[id]).filter(Boolean);
+  const selectedUnits = useMemo(() => selectedUnitIds.map(id => units[id]).filter(Boolean), [selectedUnitIds, units]);
   const influence = Math.floor(playerDetails?.influence || 0);
-  const selectedHp = selectedUnits.reduce((sum, unit) => sum + unit.hp, 0);
-  const selectedMaxHp = selectedUnits.reduce((sum, unit) => sum + (UNIT_STATS[unit.type]?.maxHp || 100), 0) || (selectedUnit ? UNIT_STATS[selectedUnit.type]?.maxHp || 100 : 100);
+  const selectedHp = useMemo(() => selectedUnits.reduce((sum, unit) => sum + unit.hp, 0), [selectedUnits]);
+  const selectedMaxHp = useMemo(() => selectedUnits.reduce((sum, unit) => sum + (UNIT_STATS[unit.type]?.maxHp || 100), 0) || (selectedUnit ? UNIT_STATS[selectedUnit.type]?.maxHp || 100 : 100), [selectedUnit, selectedUnits]);
   const selectedHpPct = Math.max(0, Math.min(100, (selectedHp / selectedMaxHp) * 100));
-  const selectedSupplied = selectedUnits.filter(unit => unit.supplied !== false).length;
-  const selectedOrders = Object.entries(
+  const selectedSupplied = useMemo(() => selectedUnits.filter(unit => unit.supplied !== false).length, [selectedUnits]);
+  const selectedOrders = useMemo(() => Object.entries(
     selectedUnits.reduce<Record<string, number>>((counts, unit) => {
       const order = unit.order?.type?.replace('_', ' ') || 'idle';
       counts[order] = (counts[order] || 0) + 1;
       return counts;
     }, {})
-  ).map(([order, count]) => `${count} ${order}`).join(' / ');
-  const selectedComposition = Object.entries(
+  ).map(([order, count]) => `${count} ${order}`).join(' / '), [selectedUnits]);
+  const selectedComposition = useMemo(() => Object.entries(
     selectedUnits.reduce<Record<string, number>>((counts, unit) => {
       const name = UNIT_STATS[unit.type]?.name || unit.type;
       counts[name] = (counts[name] || 0) + 1;
       return counts;
     }, {})
-  ).map(([name, count]) => `${count} ${name}`).join(' / ');
-  const friendlySelectedIds = selectedUnitIds.filter(id => units[id]?.team === myTeam);
+  ).map(([name, count]) => `${count} ${name}`).join(' / '), [selectedUnits]);
+  const friendlySelectedIds = useMemo(() => selectedUnitIds.filter(id => units[id]?.team === myTeam), [myTeam, selectedUnitIds, units]);
+  const centerOnFriendlyBase = useCallback(() => {
+    const hq = Object.values(useGameStore.getState().units).find(u => (u.type === 'hq' || u.type === 'factory' || u.type === 'fob') && u.team === myTeam);
+    if (hq) {
+      window.dispatchEvent(new CustomEvent('center-map', { detail: { x: hq.x, y: hq.y } }));
+      dismissStatusLater(`Centered on ${UNIT_STATS[hq.type]?.name || 'base'}`);
+    }
+  }, [dismissStatusLater, myTeam]);
+  const centerOnEvent = useCallback((event: BattleEvent) => {
+    if (event.x === undefined || event.y === undefined) return;
+    window.dispatchEvent(new CustomEvent('center-map', { detail: { x: event.x, y: event.y } }));
+  }, []);
   const sendOrder = (type: UnitOrderType) => {
     if (friendlySelectedIds.length === 0) return;
     socket?.emit('set_order', { ids: friendlySelectedIds, type });
+    dismissStatusLater(`${friendlySelectedIds.length} unit${friendlySelectedIds.length === 1 ? '' : 's'} ordered to ${type.replace('_', ' ')}`);
   };
   return (
     <div className="relative w-full h-screen bg-[#1c1c1a] font-sans overflow-hidden select-none">
        <MapCanvas />
-       {connected && (
-         <div className="absolute top-4 right-[300px] z-[999] pointer-events-auto flex gap-2">
+       {connected && playerDetails?.isHost && (
+         <div className="absolute top-4 right-4 md:right-[300px] z-[999] pointer-events-auto hidden sm:flex gap-2">
            <button 
               onClick={() => socket?.emit('toggle_ai', 'RED')} 
               className={`px-4 py-2 font-bold uppercase tracking-widest text-xs rounded transition-colors ${enableAiRed ? 'bg-red-500 text-white' : 'bg-red-900/50 text-red-300 border border-red-700'}`}
@@ -249,23 +288,23 @@ export default function App() {
          </div>
        )}
        
-       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none flex flex-col items-center opacity-80">
-           <span className="text-white font-bold tracking-widest text-sm drop-shadow-md bg-black/60 px-4 py-1 rounded-sm border border-white/20">PIXEL FRONT: {selectedTypeToBuild ? 'INSTANT DEPLOYMENT' : 'SQUAD COMMAND'}</span>
+       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none hidden lg:flex flex-col items-center opacity-80 max-w-[min(720px,calc(100vw-2rem))] text-center">
+           <span className="text-white font-bold tracking-widest text-sm drop-shadow-md bg-black/60 px-4 py-1 rounded-sm border border-white/20">PIXEL FRONT: {selectedTypeToBuild ? `${UNIT_STATS[selectedTypeToBuild as UnitClass]?.name || 'UNIT'} DEPLOYMENT` : 'SQUAD COMMAND'}</span>
            <span className="text-[#a4c294] font-bold tracking-widest text-[10px] mt-1 drop-shadow-md bg-black/40 px-2 py-0.5 rounded-sm uppercase">Troops and logistics claim pixels. Feed the front with trucks, factories, FOBs, and bunkers.</span>
-           <span className="text-[#cca054] font-bold tracking-widest text-[10px] mt-1 drop-shadow-md bg-black/40 px-2 py-0.5 rounded-sm uppercase">Drag-select troops, right-click to formation march. Shift-click adds or removes squads.</span>
+           <span className="text-[#cca054] font-bold tracking-widest text-[10px] mt-1 drop-shadow-md bg-black/40 px-2 py-0.5 rounded-sm uppercase">Drag-select troops, right-click to march. Right-drag pans. Number keys deploy units.</span>
        </div>
 
        <div className="absolute inset-0 canvas-texture map-gradient pointer-events-none z-0 mix-blend-multiply opacity-80"></div>
 
-       <div className="absolute left-1/2 top-24 md:top-28 -translate-x-1/2 z-[60] pointer-events-none">
-         <div className="flex items-center gap-2 bg-black/70 border border-white/15 px-3 py-1.5 text-[10px] md:text-xs uppercase tracking-[0.2em] text-white/75 shadow-lg">
+       <div className="absolute left-1/2 top-24 md:top-28 -translate-x-1/2 z-[60] pointer-events-none max-w-[calc(100vw-1rem)]">
+         <div className="flex items-center gap-2 bg-black/70 border border-white/15 px-3 py-1.5 text-[10px] md:text-xs uppercase tracking-[0.2em] text-white/75 shadow-lg text-center" aria-live="polite">
            <Radio className="w-3 h-3 text-[#cca054]" />
            {statusMessage}
          </div>
        </div>
 
        {battleEvents.length > 0 && (
-         <div className="absolute left-2 md:left-6 top-28 md:top-36 z-[55] pointer-events-none w-[calc(100%-1rem)] max-w-[360px]">
+         <div className="absolute left-2 md:left-6 top-28 md:top-36 z-[55] pointer-events-auto w-[calc(100%-1rem)] max-w-[360px]">
            <div className="bg-black/68 border border-white/12 shadow-xl">
              <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10 text-[10px] uppercase tracking-[0.22em] text-white/55">
                <Radio className="w-3 h-3 text-[#cca054]" />
@@ -276,7 +315,14 @@ export default function App() {
                  const eventColor = event.team === 'BLUE' ? 'text-blue-200' : event.team === 'RED' ? 'text-red-200' : 'text-white/70';
                  const badgeColor = event.priority >= 4 ? 'bg-[#cca054] text-black' : event.type === 'suppressed' ? 'bg-[#7a5c29] text-black' : event.team === 'BLUE' ? 'bg-blue-500/25 text-blue-100' : event.team === 'RED' ? 'bg-red-500/25 text-red-100' : 'bg-white/10 text-white/70';
                  return (
-                   <div key={event.id} className="px-3 py-2 bg-black/20">
+                   <button
+                     key={event.id}
+                     type="button"
+                     onClick={() => centerOnEvent(event)}
+                     disabled={event.x === undefined || event.y === undefined}
+                     className="block w-full text-left px-3 py-2 bg-black/20 hover:bg-white/5 disabled:hover:bg-black/20 disabled:cursor-default"
+                     title={event.x === undefined || event.y === undefined ? undefined : 'Center map on event'}
+                   >
                      <div className="flex items-start gap-2">
                        <span className={`mt-0.5 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-widest ${badgeColor}`}>
                          {event.type.replace('_', ' ')}
@@ -285,7 +331,7 @@ export default function App() {
                          {event.message}
                        </div>
                      </div>
-                   </div>
+                   </button>
                  );
                })}
              </div>
@@ -299,7 +345,7 @@ export default function App() {
                <div className="absolute top-0 left-0 w-full h-1 bg-black/30"></div>
                <div className="flex justify-between items-center md:items-start">
                    <h1 className="text-xl md:text-3xl font-[family-name:var(--font-stencil)] tracking-[0.1em] flex items-center gap-2 md:gap-4 drop-shadow-md">
-                     PIXEL FRONT <span className="text-xs md:text-base font-sans tracking-widest opacity-80 mt-1 md:mt-2">[ {myTeam || 'STDBY'} ]</span>
+                     PIXEL FRONT <span className="text-xs md:text-base font-sans tracking-widest opacity-80 mt-1 md:mt-2">[ {myFaction || 'STDBY'} ]</span>
                    </h1>
                    <button 
                      className="md:hidden p-2 bg-black/40 rounded border border-white/20 active:bg-black/60"
@@ -337,7 +383,7 @@ export default function App() {
                            <div className="h-full bg-[#cca054] transition-all" style={{ width: `${Math.min(100, influence)}%` }} />
                          </div>
                          <div className="mt-1 text-[9px] font-bold tracking-[0.2em] text-white/50 uppercase">{influence} command influence</div>
-                         <div className="mt-2 flex justify-end gap-3 text-[9px] uppercase tracking-widest text-white/55">
+                         <div className="mt-2 flex justify-end gap-2 md:gap-3 text-[9px] uppercase tracking-widest text-white/55 flex-wrap max-w-[min(520px,calc(100vw-2rem))]">
                            <span className="inline-flex items-center gap-1"><Factory className="w-3 h-3" /> {myTeamData.stats?.factories || 0}</span>
                            <span className="inline-flex items-center gap-1"><Flag className="w-3 h-3" /> {myTeamData.stats?.frontline || 0}</span>
                            <span>SUP {myTeamData.stats?.suppliedUnits || 0}</span>
@@ -350,14 +396,7 @@ export default function App() {
                      </div>
                      
                      <button 
-                        onClick={() => {
-                           // Center on HQ
-                           // Find friendly HQ
-                           const hq = Object.values(units).find(u => (u.type === 'hq' || u.type === 'factory' || u.type === 'fob') && u.team === myTeam);
-                           if (hq) {
-                               window.dispatchEvent(new CustomEvent('center-map', { detail: { x: hq.x, y: hq.y } }));
-                           }
-                        }}
+                        onClick={centerOnFriendlyBase}
                         className="flex flex-col items-center justify-center p-2 bg-black/30 border border-white/20 rounded active:bg-black/50 hover:bg-black/40 transition-colors ml-2 pointer-events-auto"
                         title="Center on HQ"
                      >
@@ -376,7 +415,7 @@ export default function App() {
        {/* Controls Panel */}
        {myTeam && (
          <div className={`absolute bottom-0 left-0 w-full md:bottom-6 md:left-6 pointer-events-auto flex flex-col gap-2 md:gap-4 z-10 md:w-[420px] transition-transform duration-300 ${mobileMenuOpen ? 'translate-y-0' : 'translate-y-full md:translate-y-0'}`}>
-              <div className={`hud-panel p-4 md:p-5 bg-[#252422]/95 border-t-4 md:border-4 shadow-2xl ${myTeam === 'BLUE' ? 'border-[#4a5d3f] text-[#b5cf9e]' : 'border-[#613636] text-[#d48b8b]'}`}>
+              <div className={`hud-panel p-4 md:p-5 bg-[#252422]/95 border-t-4 md:border-4 shadow-2xl max-h-[72vh] overflow-y-auto overscroll-contain ${myTeam === 'BLUE' ? 'border-[#4a5d3f] text-[#b5cf9e]' : 'border-[#613636] text-[#d48b8b]'}`}>
                   <div className="flex justify-between items-center mb-3 md:mb-4 border-b-2 border-black/30 pb-2">
                     <h3 className="text-sm md:text-base font-bold tracking-[0.2em] opacity-100 flex items-center gap-2 md:gap-3 drop-shadow-md">
                       <Zap className="w-4 h-4 md:w-5 md:h-5 opacity-80" /> PIXEL LOGISTICS
@@ -395,10 +434,14 @@ export default function App() {
                         return (
                         <button 
                           key={type}
-                          onClick={() => { setSelectedTypeToBuild(type === selectedTypeToBuild ? null : type); }} 
+                          onClick={() => {
+                            setSelectedTypeToBuild(type === selectedTypeToBuild ? null : type);
+                            setMobileMenuOpen(false);
+                            if (type !== selectedTypeToBuild) dismissStatusLater(`${unitStats.name} ready. Click map to deploy.`);
+                          }} 
                           disabled={disabled}
                           title={disabled ? (!canAfford ? `Need ${unitStats.cost - Math.floor(myTeamData.supplies)} more SU` : 'Rearming') : `${tooltip} Click map to deploy instantly.`}
-                          className={`relative flex-shrink-0 w-24 md:w-auto flex flex-col items-center justify-center p-2 md:p-3 h-20 md:h-24 bg-[#1c1b19] transition-all text-xs gap-1 opacity-90 group cursor-pointer snap-center relative
+                          className={`relative flex-shrink-0 w-24 md:w-auto flex flex-col items-center justify-center p-2 md:p-3 h-20 md:h-24 bg-[#1c1b19] transition-all text-xs gap-1 opacity-90 group cursor-pointer snap-center
                           disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed overflow-hidden
                           hover:-translate-y-1 hover:shadow-lg active:translate-y-0 shadow-inner
                           ${myTeam === 'BLUE' ? 'text-[#a4c294]' : 'text-[#d48b8b]'}

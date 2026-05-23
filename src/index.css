@@ -9,15 +9,74 @@
 /* Tactical HUD overlays */
 .canvas-texture {
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.15'/%3E%3C/svg%3E");
+  position: relative;
+}
+
+.canvas-texture::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px),
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.1) 0 1px, transparent 1px 5px);
+  background-size: 64px 64px, 64px 64px, 100% 5px;
+  opacity: 0.38;
 }
 
 .map-gradient {
-  background: radial-gradient(circle at center, transparent 30%, rgba(0,0,0,0.6) 100%);
+  background:
+    radial-gradient(circle at center, transparent 24%, rgba(0,0,0,0.42) 76%, rgba(0,0,0,0.76) 100%),
+    linear-gradient(135deg, rgba(250,204,21,0.08), transparent 28%, rgba(59,130,246,0.08) 72%, transparent);
 }
 
 .hud-panel {
-  box-shadow: inset 0 0 20px rgba(0,0,0,0.8), 0 10px 25px rgba(0,0,0,0.5);
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.12),
+    inset 0 0 24px rgba(0,0,0,0.86),
+    0 18px 42px rgba(0,0,0,0.55),
+    0 0 0 1px rgba(255,255,255,0.06);
+  background-image:
+    linear-gradient(135deg, rgba(255,255,255,0.06), transparent 34%, rgba(0,0,0,0.14)),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 9px),
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+  backdrop-filter: blur(8px) saturate(1.1);
+}
+
+.hud-panel button {
+  text-shadow: 0 1px 0 rgba(0,0,0,0.45);
+}
+
+.hud-panel button:not(:disabled):hover {
+  filter: brightness(1.08) saturate(1.08);
+}
+
+.hud-panel::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.hud-panel::-webkit-scrollbar-track {
+  background: rgba(0,0,0,0.25);
+}
+
+.hud-panel::-webkit-scrollbar-thumb {
+  background: rgba(204,160,84,0.55);
+  border: 1px solid rgba(255,255,255,0.12);
+}
+
+button:focus-visible {
+  outline: 2px solid #facc15;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 .bracket-corners {

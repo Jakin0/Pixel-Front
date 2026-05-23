@@ -3,26 +3,26 @@ import { useGameStore } from './store';
 import { MAP_WIDTH, MAP_HEIGHT } from './shared/constants';
 
 const colors: Record<string, string> = {
-  grass: '#6e885c',
-  forest: '#415b33',
-  urban: '#736b60',
-  trench: '#5c4d3c',
-  swamp: '#5a6345',
-  water: '#516e78',
-  road: '#8a8170',
-  rail: '#6f6a62',
-  mountain: '#756c58'
+  grass: '#758b58',
+  forest: '#2f5232',
+  urban: '#736f66',
+  trench: '#5a4935',
+  swamp: '#516145',
+  water: '#436d7d',
+  road: '#9b8d70',
+  rail: '#706c63',
+  mountain: '#746b58'
 };
 
 const teamColors: Record<string, string> = {
-  BLUE: '#3b82f6',
-  RED: '#ef4444',
+  BLUE: '#1f6fff',
+  RED: '#dc2626',
   NEUTRAL: '#e5e7eb',
 };
 
 const territoryColors: Record<string, string> = {
-  BLUE: 'rgba(59, 130, 246, 0.3)',
-  RED: 'rgba(239, 68, 68, 0.3)',
+  BLUE: 'rgba(31, 111, 255, 0.24)',
+  RED: 'rgba(220, 38, 38, 0.24)',
 };
 
 export default function MiniMap({ className = '' }: { className?: string }) {
@@ -59,6 +59,10 @@ export default function MiniMap({ className = '' }: { className?: string }) {
         if (block) {
           ctx.fillStyle = colors[block.type] || colors.grass;
           ctx.fillRect(x * cellW, y * cellH, cellW + 0.5, cellH + 0.5); 
+          if ((x + y) % 9 === 0) {
+            ctx.fillStyle = 'rgba(255,255,255,0.08)';
+            ctx.fillRect(x * cellW, y * cellH, cellW + 0.5, Math.max(1, cellH * 0.35));
+          }
         }
       }
     }
@@ -82,6 +86,10 @@ export default function MiniMap({ className = '' }: { className?: string }) {
             const ty = Math.floor(i / MAP_WIDTH);
             ctx.fillStyle = val === 1 ? territoryColors.BLUE : territoryColors.RED;
             ctx.fillRect(tx * cellW, ty * cellH, cellW + 0.5, cellH + 0.5);
+            if ((tx + ty) % 5 === 0) {
+              ctx.fillStyle = val === 1 ? 'rgba(147,197,253,0.25)' : 'rgba(252,165,165,0.25)';
+              ctx.fillRect(tx * cellW, ty * cellH, Math.max(1, cellW * 0.35), cellH + 0.5);
+            }
         }
     }
     territoryCanvasRef.current = canvas;
@@ -104,26 +112,50 @@ export default function MiniMap({ className = '' }: { className?: string }) {
     ctx.drawImage(terrainCanvasRef.current, 0, 0, cw, ch);
     if (territoryCanvasRef.current) ctx.drawImage(territoryCanvasRef.current, 0, 0, cw, ch);
 
+    const gradient = ctx.createRadialGradient(cw / 2, ch / 2, 8, cw / 2, ch / 2, Math.max(cw, ch) / 1.35);
+    gradient.addColorStop(0, 'rgba(255,255,255,0.04)');
+    gradient.addColorStop(0.74, 'rgba(0,0,0,0.04)');
+    gradient.addColorStop(1, 'rgba(0,0,0,0.42)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, cw, ch);
+
     // Draw Supply Lines
-    ctx.lineWidth = 1;
-    ctx.setLineDash([2, 2]);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     supplyLines.forEach(line => {
-       ctx.strokeStyle = teamColors[line.team];
+       ctx.shadowColor = teamColors[line.team];
+       ctx.shadowBlur = 6;
+       ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+       ctx.lineWidth = 3;
        ctx.beginPath();
        ctx.moveTo((line.x1 + 0.5) * cellW, (line.y1 + 0.5) * cellH);
        ctx.lineTo((line.x2 + 0.5) * cellW, (line.y2 + 0.5) * cellH);
        ctx.stroke();
+       ctx.shadowBlur = 3;
+       ctx.strokeStyle = teamColors[line.team];
+       ctx.lineWidth = 1.25;
+       ctx.setLineDash([3, 2]);
+       ctx.beginPath();
+       ctx.moveTo((line.x1 + 0.5) * cellW, (line.y1 + 0.5) * cellH);
+       ctx.lineTo((line.x2 + 0.5) * cellW, (line.y2 + 0.5) * cellH);
+       ctx.stroke();
+       ctx.setLineDash([]);
     });
-    ctx.setLineDash([]);
+    ctx.shadowBlur = 0;
 
     // Draw Units
     Object.values(units).forEach(u => {
        ctx.fillStyle = teamColors[u.team] || teamColors.NEUTRAL;
        
        const isSelected = selectedUnitIds.includes(u.id);
+       ctx.shadowColor = isSelected ? '#facc15' : (teamColors[u.team] || '#fff');
+       ctx.shadowBlur = isSelected ? 8 : 3;
        if (u.type === 'hq' || u.type === 'factory' || u.type === 'fob' || u.type === 'bunker') {
+           ctx.fillStyle = 'rgba(0,0,0,0.55)';
+           ctx.fillRect(u.x * cellW - 1, u.y * cellH - 1, cellW * 2 + 2, cellH * 2 + 2);
+           ctx.fillStyle = teamColors[u.team] || teamColors.NEUTRAL;
            ctx.fillRect(u.x * cellW, u.y * cellH, cellW * 2, cellH * 2);
-           ctx.strokeStyle = isSelected ? '#facc15' : '#fff';
+           ctx.strokeStyle = isSelected ? '#facc15' : 'rgba(255,255,255,0.9)';
            ctx.lineWidth = isSelected ? 2.5 : 1.5;
            ctx.strokeRect(u.x * cellW, u.y * cellH, cellW * 2, cellH * 2);
        } else if (u.type === 'supply_truck') {
@@ -142,11 +174,12 @@ export default function MiniMap({ className = '' }: { className?: string }) {
            }
        }
     });
+    ctx.shadowBlur = 0;
 
   }, [units, terrainVersion, territoryVersion, selectedUnitIds, supplyLines]);
 
   return (
-    <div className={`p-1 bg-[#1a1711] border-2 border-white/10 rounded overflow-hidden shadow-xl ${className}`}>
+    <div className={`p-1 bg-[#11130f] border-2 border-white/10 rounded overflow-hidden shadow-xl ring-1 ring-[#facc15]/20 ${className}`}>
         <canvas 
             ref={canvasRef} 
             width={MAP_WIDTH * 2} 
